@@ -1,0 +1,689 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bunny Dash 🐰</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(135deg, #fce9bd, #d9f2dc);
+  font-family: 'Trebuchet MS', sans-serif;
+}
+
+.game-container {
+  width: 90%;
+  max-width: 900px;
+  text-align: center;
+}
+
+h1 {
+  color: #e58b43;
+  font-size: 38px;
+}
+
+.game-box {
+  background: white;
+  padding: 12px;
+  border-radius: 20px;
+  box-shadow: 0 10px 30px #0002;
+}
+
+.score-board {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px;
+  font-weight: bold;
+  color: #34495e;
+}
+
+canvas {
+  width: 100%;
+  display: block;
+  border-radius: 12px;
+  touch-action: manipulation;
+}
+
+.controls {
+  margin-top: 15px;
+  color: #555;
+  font-size: 14px;
+}
+
+button {
+  background: #f29b4b;
+  color: white;
+  border: none;
+  padding: 12px 25px;
+  border-radius: 25px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  margin: 5px;
+}
+
+button:hover {
+  background: #dc8033;
+}
+</style>
+</head>
+
+<body>
+
+<div class="game-container">
+
+<h1>🐰 Bunny Dash</h1>
+<p>Hop, dodge and collect carrots!</p>
+
+<div class="game-box">
+
+<div class="score-board">
+  <span>Score: <span id="score">0</span></span>
+  <span>Best: <span id="best">0</span></span>
+</div>
+
+<canvas id="game" width="900" height="390"></canvas>
+
+<div class="controls">
+  SPACE / ↑ = JUMP |
+  ↓ = DUCK
+</div>
+
+<button onclick="startGame()">Restart Game</button>
+
+</div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const W = 900;
+const H = 390;
+const ground = 316;
+
+let score = 0;
+let best = Number(localStorage.getItem("bunnyBest")) || 0;
+
+let speed = 5;
+let running = false;
+let gameOver = false;
+let frame = 0;
+
+let obstacles = [];
+let carrots = [];
+
+let obstacleTimer = 0;
+let carrotTimer = 0;
+let night = false;
+
+const rabbit = {
+  x: 110,
+  y: ground,
+  vy: 0,
+  jumping: false,
+  ducking: false,
+  animation: 0
+};
+
+document.getElementById("best").innerText = best;
+
+// Sound
+let audio;
+
+function beep(freq = 500) {
+  try {
+    audio ||= new (window.AudioContext || window.webkitAudioContext)();
+
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+
+    oscillator.frequency.value = freq;
+    gain.gain.value = 0.07;
+
+    oscillator.connect(gain);
+    gain.connect(audio.destination);
+
+    oscillator.start();
+    oscillator.stop(audio.currentTime + 0.1);
+  } catch(e) {}
+}
+
+// Start game
+function startGame() {
+  score = 0;
+  speed = 5;
+  frame = 0;
+
+  obstacles = [];
+  carrots = [];
+
+  obstacleTimer = 60;
+  carrotTimer = 100;
+
+  rabbit.y = ground;
+  rabbit.vy = 0;
+  rabbit.jumping = false;
+  rabbit.ducking = false;
+
+  running = true;
+  gameOver = false;
+
+  beep(650);
+  updateScore();
+}
+
+// Jump
+function jump() {
+  if (!running) {
+    if (gameOver) {
+      startGame();
+      return;
+    }
+    startGame();
+    return;
+  }
+
+  if (!rabbit.jumping) {
+    rabbit.vy = -14;
+    rabbit.jumping = true;
+    rabbit.ducking = false;
+    beep(450);
+  }
+}
+
+// Controls
+document.addEventListener("keydown", e => {
+
+  if (["Space", "ArrowUp", "ArrowDown"].includes(e.code)) {
+    e.preventDefault();
+  }
+
+  if (e.code === "Space" || e.code === "ArrowUp") {
+    if (!e.repeat) jump();
+  }
+
+  if (e.code === "ArrowDown") {
+    rabbit.ducking = true;
+  }
+});
+
+document.addEventListener("keyup", e => {
+  if (e.code === "ArrowDown") {
+    rabbit.ducking = false;
+  }
+});
+
+canvas.addEventListener("pointerdown", jump);
+
+// Background
+function drawBackground() {
+
+  let sky = ctx.createLinearGradient(0, 0, 0, H);
+
+  if (night) {
+    sky.addColorStop(0, "#18294f");
+    sky.addColorStop(1, "#526a83");
+  } else {
+    sky.addColorStop(0, "#7ed4f0");
+    sky.addColorStop(1, "#d8f5e8");
+  }
+
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // Sun / Moon
+  ctx.fillStyle = night ? "#fff0bd" : "#ffe18b";
+
+  ctx.beginPath();
+  ctx.arc(760, 75, 30, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Clouds
+  if (!night) {
+    ctx.fillStyle = "white";
+
+    for (let i = 0; i < 5; i++) {
+      let x = (i * 200 - frame * 0.5) % 1000;
+      let y = 60 + i * 20;
+
+      ctx.beginPath();
+      ctx.arc(x, y, 18, 0, Math.PI * 2);
+      ctx.arc(x + 20, y - 10, 23, 0, Math.PI * 2);
+      ctx.arc(x + 43, y, 18, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Hills
+  ctx.fillStyle = night ? "#304e60" : "#91d49a";
+
+  ctx.beginPath();
+  ctx.moveTo(0, 260);
+
+  for (let x = 0; x <= W; x += 10) {
+    ctx.lineTo(
+      x,
+      225 + Math.sin((x + frame) / 95) * 20
+    );
+  }
+
+  ctx.lineTo(W, H);
+  ctx.lineTo(0, H);
+  ctx.fill();
+
+  // Ground
+  ctx.fillStyle = night ? "#344d43" : "#77c96d";
+  ctx.fillRect(0, ground, W, H - ground);
+
+  ctx.fillStyle = night ? "#243b36" : "#4eaa59";
+  ctx.fillRect(0, ground, W, 8);
+}
+
+// Rabbit
+function drawRabbit() {
+
+  const bob = rabbit.jumping ? 0 :
+    Math.sin(rabbit.animation) * 3;
+
+  ctx.save();
+  ctx.translate(rabbit.x, rabbit.y + bob);
+
+  // Shadow
+  ctx.fillStyle = "#315a3d44";
+  ctx.beginPath();
+  ctx.ellipse(0, 3, 25, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body
+  ctx.fillStyle = "#fffdf6";
+  ctx.beginPath();
+  ctx.ellipse(0, -28, 22, 21, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Tail
+  ctx.beginPath();
+  ctx.arc(-19, -28, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.beginPath();
+  ctx.arc(15, -48, 15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Ears
+  ctx.save();
+  ctx.translate(10, -60);
+
+  let swing = Math.sin(rabbit.animation) * 5;
+
+  ctx.rotate(-0.25 + swing * 0.025);
+
+  ctx.fillStyle = "#fffdf6";
+  ctx.fillRect(-5, -20, 9, 27);
+
+  ctx.fillStyle = "#f4a9b4";
+  ctx.fillRect(-2, -16, 4, 18);
+
+  ctx.restore();
+
+  // Second ear
+  ctx.save();
+  ctx.translate(22, -60);
+  ctx.rotate(0.3);
+
+  ctx.fillStyle = "#fffdf6";
+  ctx.fillRect(0, -20, 9, 26);
+
+  ctx.fillStyle = "#f4a9b4";
+  ctx.fillRect(3, -16, 4, 17);
+
+  ctx.restore();
+
+  // Eye
+  ctx.fillStyle = "#26354b";
+  ctx.beginPath();
+  ctx.arc(20, -50, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Nose
+  ctx.fillStyle = "#ef9ca7";
+  ctx.beginPath();
+  ctx.arc(27, -43, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Legs
+  let leg = Math.sin(rabbit.animation * 2) * 6;
+
+  ctx.fillStyle = "#fffdf6";
+
+  ctx.fillRect(-13, -12 + leg, 13, 12);
+  ctx.fillRect(5, -12 - leg, 13, 12);
+
+  ctx.restore();
+}
+
+// Obstacles
+function createObstacle() {
+
+  const types = ["rock", "stump", "bush", "log"];
+
+  const type = types[Math.floor(Math.random() * types.length)];
+
+  obstacles.push({
+    x: W + 30,
+    type: type,
+    width: 42,
+    height: type === "stump" ? 38 : 30
+  });
+}
+
+function drawObstacle(o) {
+
+  ctx.save();
+  ctx.translate(o.x, ground);
+
+  if (o.type === "rock") {
+
+    ctx.fillStyle = "#8d9299";
+
+    ctx.beginPath();
+    ctx.moveTo(-18, 0);
+    ctx.lineTo(-14, -22);
+    ctx.lineTo(1, -31);
+    ctx.lineTo(18, -17);
+    ctx.lineTo(22, 0);
+    ctx.closePath();
+    ctx.fill();
+
+  } else if (o.type === "stump") {
+
+    ctx.fillStyle = "#98633f";
+    ctx.fillRect(-13, -37, 26, 37);
+
+    ctx.fillStyle = "#c58b55";
+    ctx.beginPath();
+    ctx.ellipse(0, -37, 14, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+  } else if (o.type === "bush") {
+
+    ctx.fillStyle = "#287d49";
+
+    ctx.beginPath();
+    ctx.arc(-12, -12, 15, 0, Math.PI * 2);
+    ctx.arc(2, -20, 19, 0, Math.PI * 2);
+    ctx.arc(17, -10, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+  } else {
+
+    ctx.fillStyle = "#a96d3d";
+    ctx.fillRect(-24, -17, 48, 17);
+
+    ctx.fillStyle = "#d49a60";
+    ctx.beginPath();
+    ctx.arc(-20, -9, 7, 0, Math.PI * 2);
+    ctx.arc(20, -9, 7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// Carrots
+function createCarrot() {
+
+  carrots.push({
+    x: W + 20,
+    y: ground - 50 - Math.random() * 60,
+    collected: false
+  });
+}
+
+function drawCarrot(c) {
+
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.rotate(0.5);
+
+  ctx.fillStyle = "#f28b32";
+
+  ctx.beginPath();
+  ctx.moveTo(-7, -10);
+  ctx.lineTo(7, -10);
+  ctx.lineTo(0, 14);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#3d9a57";
+
+  ctx.beginPath();
+  ctx.ellipse(-3, -13, 4, 8, -0.6, 0, Math.PI * 2);
+  ctx.ellipse(4, -14, 4, 8, 0.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// Collision
+function collision(a, b) {
+
+  return (
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y
+  );
+}
+
+// Update
+function update() {
+
+  frame++;
+
+  if (!running) return;
+
+  speed = Math.min(12, 5 + score / 450);
+
+  rabbit.animation += 0.25;
+
+  // Jump physics
+  if (rabbit.jumping) {
+
+    rabbit.y += rabbit.vy;
+    rabbit.vy += 0.7;
+
+    if (rabbit.y >= ground) {
+      rabbit.y = ground;
+      rabbit.vy = 0;
+      rabbit.jumping = false;
+    }
+  }
+
+  // Spawn obstacles
+  obstacleTimer--;
+
+  if (obstacleTimer <= 0) {
+
+    createObstacle();
+
+    obstacleTimer = 75 + Math.random() * 55;
+  }
+
+  // Spawn carrots
+  carrotTimer--;
+
+  if (carrotTimer <= 0) {
+
+    createCarrot();
+
+    carrotTimer = 120 + Math.random() * 100;
+  }
+
+  // Move objects
+  obstacles.forEach(o => o.x -= speed);
+  carrots.forEach(c => c.x -= speed);
+
+  obstacles = obstacles.filter(o => o.x > -60);
+  carrots = carrots.filter(c => c.x > -30 && !c.collected);
+
+  // Rabbit collision box
+  let rabbitBox = {
+    x: rabbit.x - 16,
+    y: rabbit.ducking ? rabbit.y - 30 : rabbit.y - 68,
+    width: 35,
+    height: rabbit.ducking ? 27 : 65
+  };
+
+  // Check obstacles
+  for (const o of obstacles) {
+
+    let box = {
+      x: o.x - 18,
+      y: ground - o.height,
+      width: o.width,
+      height: o.height
+    };
+
+    if (collision(rabbitBox, box)) {
+      endGame();
+      return;
+    }
+  }
+
+  // Collect carrots
+  for (const c of carrots) {
+
+    if (
+      !c.collected &&
+      Math.abs(c.x - rabbit.x) < 27 &&
+      Math.abs(c.y - (rabbit.y - 43)) < 45
+    ) {
+
+      c.collected = true;
+      score += 50;
+      beep(850);
+    }
+  }
+
+  score++;
+
+  updateScore();
+}
+
+// Game over
+function endGame() {
+
+  running = false;
+  gameOver = true;
+
+  if (score > best) {
+    best = score;
+    localStorage.setItem("bunnyBest", best);
+  }
+
+  updateScore();
+  beep(150);
+}
+
+// Score
+function updateScore() {
+
+  document.getElementById("score").innerText = score;
+  document.getElementById("best").innerText = best;
+}
+
+// Overlay
+function drawOverlay() {
+
+  if (running) return;
+
+  ctx.fillStyle = "#15243b66";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "white";
+  ctx.font = "bold 42px Arial";
+
+  ctx.fillText(
+    gameOver ? "Game Over!" : "Ready, Set, HOP!",
+    W / 2,
+    145
+  );
+
+  ctx.font = "20px Arial";
+
+  ctx.fillText(
+    gameOver
+      ? "Your Score: " + score
+      : "Collect carrots and avoid obstacles!",
+    W / 2,
+    185
+  );
+
+  ctx.fillStyle = "#f29b4b";
+  ctx.beginPath();
+  ctx.roundRect(W / 2 - 85, 210, 170, 50, 25);
+  ctx.fill();
+
+  ctx.fillStyle = "white";
+  ctx.font = "bold 20px Arial";
+
+  ctx.fillText(
+    gameOver ? "PLAY AGAIN" : "START GAME",
+    W / 2,
+    242
+  );
+
+  ctx.font = "14px Arial";
+  ctx.fillText("Press SPACE to begin", W / 2, 285);
+}
+
+// Main drawing
+function draw() {
+
+  drawBackground();
+
+  carrots.forEach(drawCarrot);
+  obstacles.forEach(drawObstacle);
+
+  drawRabbit();
+
+  drawOverlay();
+}
+
+// Main loop
+function gameLoop() {
+
+  update();
+  draw();
+
+  requestAnimationFrame(gameLoop);
+}
+
+// Theme toggle
+document.addEventListener("keydown", e => {
+
+  if (e.code === "KeyN") {
+    night = !night;
+  }
+
+});
+
+gameLoop();
+
+</script>
+
+</body>
+</html>
